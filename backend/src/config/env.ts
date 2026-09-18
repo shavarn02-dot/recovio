@@ -40,6 +40,10 @@ const schema = z.object({
       return false;
     }
   }, { message: "ENCRYPTION_KEY must be a valid base64 string exactly 32 bytes long." }),
+
+  RAZORPAY_CLIENT_ID: z.string().optional(),
+  RAZORPAY_CLIENT_SECRET: z.string().optional(),
+  RAZORPAY_OAUTH_REDIRECT_URI: z.string().optional(),
 });
 
 function parseConfig(): z.infer<typeof schema> {

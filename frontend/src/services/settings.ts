@@ -89,6 +89,16 @@ export const settingsService = {
     return response.data;
   },
 
+  getRazorpayOAuthAuthorizeUrl: async (): Promise<{ url: string | null; mode: 'live' | 'simulate'; state: string }> => {
+    const response = await api.get('/settings/integrations/razorpay/oauth/authorize');
+    return response.data;
+  },
+
+  handleRazorpayOAuthCallback: async (data: { code: string; state?: string; simulate?: boolean }): Promise<{ success: boolean; message: string; accountId?: string }> => {
+    const response = await api.post('/settings/integrations/razorpay/oauth/callback', data);
+    return response.data;
+  },
+
   saveRazorpayKey: async (data: { keyId: string; keySecret: string; webhookSecret: string }): Promise<{ message: string }> => {
     const response = await api.post('/settings/integrations/razorpay', data);
     return response.data;

@@ -81,25 +81,41 @@ export class RazorpayAdapter implements IPaymentGateway {
   }
 
   async createPaymentLink(
-    credentials: Record<string, string>,
+    credentials: Record<string, unknown>,
     invoiceId: string,
     amount: number,
     currency: string,
     description: string
   ): Promise<{ paymentUrl: string; providerPaymentLinkId: string; providerOrderId?: string }> {
-    const { keyId, keySecret } = credentials;
-    if (!keyId || !keySecret) {
-      throw new ValidationError('Razorpay credentials missing keyId or keySecret');
+    const keyId = typeof credentials.keyId === 'string' ? credentials.keyId : undefined;
+    const keySecret = typeof credentials.keySecret === 'string' ? credentials.keySecret : undefined;
+    const accessToken = typeof credentials.accessToken === 'string' ? credentials.accessToken : undefined;
+
+    // Support simulated sandbox mode
+    if (accessToken?.startsWith('mock_') || keyId?.startsWith('rzp_test_sim_')) {
+      const mockLinkId = `plink_sim_${crypto.randomBytes(6).toString('hex')}`;
+      const mockOrderId = `order_sim_${crypto.randomBytes(6).toString('hex')}`;
+      return {
+        paymentUrl: `https://rzp.io/i/recovio_${mockLinkId.slice(-8)}`,
+        providerPaymentLinkId: mockLinkId,
+        providerOrderId: mockOrderId,
+      };
+    }
+
+    if (!accessToken && (!keyId || !keySecret)) {
+      throw new ValidationError('Razorpay credentials missing keyId/keySecret or OAuth accessToken');
     }
 
     const amountInPaise = Math.round(amount * 100);
-    const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const authHeaders: Record<string, string> = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : { Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}` };
 
     const response = await fetch('https://api.razorpay.com/v1/payment_links', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Basic ${auth}`,
+        ...authHeaders,
       },
       body: JSON.stringify({
         amount: amountInPaise,

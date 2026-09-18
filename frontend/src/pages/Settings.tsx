@@ -20,13 +20,26 @@ import { SendGridWizardStep2 } from './Settings/SendGridWizardStep2';
 import { SendGridWizardStep3 } from './Settings/SendGridWizardStep3';
 import { ResendSetupModal } from './Settings/ResendSetupModal';
 import { CustomSelect } from '../components/ui/CustomSelect';
-import { MultiStepForm } from '../components/ui/multi-step-form';
+import { useSearchParams } from 'react-router-dom';
 
 export function Settings() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<
-    'general' | 'integrations' | 'customization' | 'team' | 'security' | 'billing' | 'support'
-  >('general');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryTab = searchParams.get('tab');
+  const validTabs = ['general', 'integrations', 'customization', 'team', 'security', 'billing', 'support'] as const;
+  type TabType = typeof validTabs[number];
+  const initialTab: TabType = validTabs.includes(queryTab as TabType) ? (queryTab as TabType) : 'general';
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  };
 
   return (
     <div className="w-full text-[#f7f8f8] space-y-6 pb-12">
@@ -43,7 +56,7 @@ export function Settings() {
         <div className="w-full md:w-60 border-b md:border-b-0 md:border-r border-[#23252a] p-3 space-y-1 flex-shrink-0 bg-[#0f1011]">
           <TabButton 
             active={activeTab === 'general'} 
-            onClick={() => setActiveTab('general')} 
+            onClick={() => handleTabChange('general')} 
             icon={<Building className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
             label="General" 
           />
@@ -51,13 +64,13 @@ export function Settings() {
             <>
               <TabButton 
                 active={activeTab === 'integrations'} 
-                onClick={() => setActiveTab('integrations')} 
+                onClick={() => handleTabChange('integrations')} 
                 icon={<LinkIcon className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
                 label="Integrations" 
               />
               <TabButton 
                 active={activeTab === 'customization'} 
-                onClick={() => setActiveTab('customization')} 
+                onClick={() => handleTabChange('customization')} 
                 icon={<Zap className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
                 label="Preferences & Automation" 
               />
@@ -65,27 +78,27 @@ export function Settings() {
           )}
           <TabButton 
             active={activeTab === 'team'} 
-            onClick={() => setActiveTab('team')} 
+            onClick={() => handleTabChange('team')} 
             icon={<Users className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
             label="Team & Access" 
           />
           <TabButton 
             active={activeTab === 'security'} 
-            onClick={() => setActiveTab('security')} 
+            onClick={() => handleTabChange('security')} 
             icon={<ShieldCheck className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
             label="Profile & Security" 
           />
           {user?.role === 'admin' && (
             <TabButton 
               active={activeTab === 'billing'} 
-              onClick={() => setActiveTab('billing')} 
+              onClick={() => handleTabChange('billing')} 
               icon={<CreditCard className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
               label="Billing & Plans" 
             />
           )}
           <TabButton 
             active={activeTab === 'support'} 
-            onClick={() => setActiveTab('support')} 
+            onClick={() => handleTabChange('support')} 
             icon={<HelpCircle className="w-4 h-4 mr-2.5 text-[#8a8f98]" />} 
             label="Support" 
           />
@@ -368,7 +381,24 @@ function GeneralSettings() {
  * 2. INTEGRATIONS SECTION (Payment Gateways & Email Providers)
  * ============================================================================ */
 function IntegrationsSection() {
-  const [openSection, setOpenSection] = useState<'payment' | 'email' | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const querySection = searchParams.get('section');
+  const initialSection = querySection === 'email' ? 'email' : 'payment';
+  const [openSection, setOpenSection] = useState<'payment' | 'email' | null>(initialSection);
+
+  const handleToggleSection = (section: 'payment' | 'email') => {
+    const nextSection = openSection === section ? null : section;
+    setOpenSection(nextSection);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (nextSection) {
+        next.set('section', nextSection);
+      } else {
+        next.delete('section');
+      }
+      return next;
+    }, { replace: true });
+  };
 
   return (
     <div className="space-y-4 text-[#f7f8f8]">
@@ -376,7 +406,7 @@ function IntegrationsSection() {
       <div className="border border-[#23252a] rounded-2xl bg-[#010102] overflow-hidden">
         <button
           type="button"
-          onClick={() => setOpenSection(openSection === 'payment' ? null : 'payment')}
+          onClick={() => handleToggleSection('payment')}
           className="w-full flex items-center justify-between p-4 hover:bg-[#141516] transition-all cursor-pointer text-left select-none"
         >
           <div>
@@ -404,7 +434,7 @@ function IntegrationsSection() {
       <div className="border border-[#23252a] rounded-2xl bg-[#010102] overflow-hidden">
         <button
           type="button"
-          onClick={() => setOpenSection(openSection === 'email' ? null : 'email')}
+          onClick={() => handleToggleSection('email')}
           className="w-full flex items-center justify-between p-4 hover:bg-[#141516] transition-all cursor-pointer text-left select-none"
         >
           <div>

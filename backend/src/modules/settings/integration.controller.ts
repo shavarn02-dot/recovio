@@ -621,6 +621,45 @@ export class IntegrationController {
     }
   };
 
+  getRazorpayOAuthAuthorizeUrl = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const result = this.integrationService.getRazorpayOAuthAuthorizeUrl(user.tenantId, user.userId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  handleRazorpayOAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const tenantId = (req as AuthenticatedRequest).user.tenantId;
+      const { code, state, simulate } = req.body;
+
+      if (!code && !simulate) {
+        next(new ValidationError('Authorization code or simulation flag is required'));
+        return;
+      }
+
+      const result = await this.integrationService.handleRazorpayOAuthCallback(tenantId, {
+        code: code || 'simulated',
+        state,
+        simulate: Boolean(simulate),
+      });
+
+      this.eventService?.logEvent({
+        tenantId,
+        eventType: 'integration.connected',
+        actor: this.getActorContext(req),
+        metadata: { integration: 'razorpay', isOAuth: true, accountId: result.accountId },
+      });
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   saveRazorpayKey = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tenantId = (req as AuthenticatedRequest).user.tenantId;

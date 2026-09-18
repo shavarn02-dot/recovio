@@ -29,7 +29,7 @@ export interface IPaymentGateway {
    * Creates a payment link using the provider API.
    */
   createPaymentLink(
-    credentials: Record<string, string>,
+    credentials: Record<string, unknown>,
     invoiceId: string,
     amount: number,
     currency: string,

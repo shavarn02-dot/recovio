@@ -126,7 +126,7 @@ export class PaymentService {
     if (!adapter) throw new ValidationError(`Provider ${provider} not registered`);
 
     const credentials = await this.integrationService.getDecryptedRazorpayConfig(tenantId);
-    const isValid = adapter.verifyWebhookSignature(rawBody, signature, credentials.webhookSecret);
+    const isValid = adapter.verifyWebhookSignature(rawBody, signature, credentials.webhookSecret || '');
     if (!isValid) {
       logger.error(`Webhook signature validation failed for tenant ${tenantId}`);
       throw new AuthError('Invalid signature', 401);

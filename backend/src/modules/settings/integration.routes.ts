@@ -37,6 +37,8 @@ export function createIntegrationRouter(controller: IntegrationController): Rout
 
   router.patch('/default-provider', requireRole('admin'), controller.setDefaultProvider);
 
+  router.get('/razorpay/oauth/authorize', requireRole('admin'), controller.getRazorpayOAuthAuthorizeUrl);
+  router.post('/razorpay/oauth/callback', requireRole('admin'), controller.handleRazorpayOAuthCallback);
   router.post('/razorpay', requireRole('admin'), controller.saveRazorpayKey);
   router.post('/razorpay/test', requireRole('admin'), controller.testRazorpayKey);
   router.delete('/razorpay', requireRole('admin'), controller.disconnectRazorpay);

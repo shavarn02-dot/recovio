@@ -288,6 +288,9 @@ export interface RazorpayIntegrationStatus extends BaseIntegrationStatus {
   provider: 'razorpay';
   maskedKeyId?: string;
   lastWebhookReceivedAt?: string | null;
+  isOAuth?: boolean;
+  accountId?: string;
+  oauthConfigured?: boolean;
 }
 
 export interface InboundParseIntegrationStatus {

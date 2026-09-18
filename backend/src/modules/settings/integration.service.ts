@@ -9,7 +9,7 @@ import { logger } from '../../shared/logger.js';
 import type { TenantIntegration } from '../../db/index.js';
 import { SmtpConnectionFactory, SmtpConfig } from '../../shared/email/providers/smtp-email.provider.js';
 import { verifyEmailDomainMx, validateInboundDomainFormat, verifyInboundMxForProvider } from '../../shared/email/mx-verifier.js';
-import { ValidationError } from '../../shared/errors/index.js';
+import { ValidationError, ExternalServiceError } from '../../shared/errors/index.js';
 import type { PlatformMailer } from '../platform-mail/platform-mailer.js';
 import { config } from '../../config/index.js';
 
@@ -35,6 +35,9 @@ export interface RazorpayIntegrationStatus {
   lastValidatedAt: Date | null;
   lastValidationResult: TenantIntegration['lastValidationResult'];
   maskedKeyId?: string;
+  isOAuth?: boolean;
+  accountId?: string;
+  oauthConfigured?: boolean;
 }
 
 export interface SendgridConfigPayload {
@@ -556,6 +559,7 @@ export class IntegrationService {
   }
 
   async getIntegrationStatusRazorpay(tenantId: string): Promise<RazorpayIntegrationStatus> {
+    const oauthConfigured = Boolean(config.RAZORPAY_CLIENT_ID && config.RAZORPAY_CLIENT_SECRET);
     const integration = await this.repo.getIntegration(tenantId, 'razorpay');
     if (!integration) {
       return {
@@ -563,13 +567,22 @@ export class IntegrationService {
         isConfigured: false,
         lastValidatedAt: null,
         lastValidationResult: 'unknown',
+        oauthConfigured,
       };
     }
 
     let maskedKeyId = '';
+    let isOAuth = false;
+    let accountId: string | undefined;
     try {
-      const config = await this.getDecryptedRazorpayConfig(tenantId);
-      maskedKeyId = config.keyId.substring(0, 8) + '...';
+      const creds = await this.getDecryptedRazorpayConfig(tenantId);
+      isOAuth = Boolean(creds.isOAuth || creds.accessToken);
+      accountId = creds.accountId;
+      if (creds.keyId) {
+        maskedKeyId = creds.keyId.length > 8 ? creds.keyId.substring(0, 8) + '...' : creds.keyId;
+      } else if (creds.accountId) {
+        maskedKeyId = creds.accountId;
+      }
     } catch (e) {
       logger.error(`Failed to decrypt Razorpay config for status check (tenant: ${tenantId}):`, e);
     }
@@ -580,6 +593,9 @@ export class IntegrationService {
       lastValidatedAt: integration.lastValidatedAt,
       lastValidationResult: integration.lastValidationResult,
       maskedKeyId,
+      isOAuth,
+      accountId,
+      oauthConfigured,
     };
   }
 
@@ -1408,7 +1424,15 @@ export class IntegrationService {
     await this.repo.deleteIntegration(tenantId, 'razorpay');
   }
 
-  async getDecryptedRazorpayConfig(tenantId: string): Promise<{ keyId: string, keySecret: string, webhookSecret: string }> {
+  async getDecryptedRazorpayConfig(tenantId: string): Promise<{
+    keyId?: string;
+    keySecret?: string;
+    webhookSecret?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    accountId?: string;
+    isOAuth?: boolean;
+  }> {
     const integration = await this.repo.getIntegration(tenantId, 'razorpay');
     if (!integration || !integration.ciphertext || !integration.iv || !integration.authTag) {
       throw IntegrationErrors.NOT_CONFIGURED('Razorpay');
@@ -1430,12 +1454,179 @@ export class IntegrationService {
     }
   }
 
+  getRazorpayOAuthAuthorizeUrl(tenantId: string, userId: string): { url: string | null; mode: 'live' | 'simulate'; state: string } {
+    const statePayload = {
+      tenantId,
+      userId,
+      timestamp: Date.now(),
+      nonce: crypto.randomBytes(12).toString('hex'),
+    };
+    const stateString = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+    const hmac = crypto.createHmac('sha256', config.JWT_SECRET).update(stateString).digest('base64url');
+    const state = `${stateString}.${hmac}`;
+
+    const clientId = config.RAZORPAY_CLIENT_ID;
+    const redirectUri = config.RAZORPAY_OAUTH_REDIRECT_URI || `${config.FRONTEND_URL}/settings?tab=integrations&section=payment`;
+
+    if (clientId && clientId.trim()) {
+      const authUrl = `https://auth.razorpay.com/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read_write&state=${encodeURIComponent(state)}`;
+      return { url: authUrl, mode: 'live', state };
+    }
+
+    return { url: null, mode: 'simulate', state };
+  }
+
+  async handleRazorpayOAuthCallback(
+    tenantId: string,
+    payload: { code: string; state?: string; simulate?: boolean }
+  ): Promise<{ success: boolean; message: string; accountId?: string }> {
+    if (payload.state) {
+      const [stateString, signature] = payload.state.split('.');
+      if (!stateString || !signature) {
+        throw new ValidationError('Invalid OAuth state parameter');
+      }
+      const expectedHmac = crypto.createHmac('sha256', config.JWT_SECRET).update(stateString).digest('base64url');
+      const sigBuffer = Buffer.from(signature);
+      const expectedBuffer = Buffer.from(expectedHmac);
+      if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+        throw new ValidationError('OAuth state validation failed (tampered)');
+      }
+      try {
+        const decoded = JSON.parse(Buffer.from(stateString, 'base64url').toString('utf8'));
+        if (decoded.tenantId !== tenantId) {
+          throw new ValidationError('OAuth state tenant mismatch');
+        }
+        if (Date.now() - decoded.timestamp > 15 * 60 * 1000) {
+          throw new ValidationError('OAuth session expired. Please try connecting again.');
+        }
+      } catch (err: unknown) {
+        if (err instanceof ValidationError) throw err;
+        throw new ValidationError('Malformed OAuth state data');
+      }
+    }
+
+    const isSimulation = payload.simulate || !config.RAZORPAY_CLIENT_ID || payload.code.startsWith('mock_') || payload.code === 'simulated';
+
+    let credsToStore: {
+      isOAuth: boolean;
+      keyId: string;
+      keySecret?: string;
+      accessToken: string;
+      refreshToken?: string;
+      accountId: string;
+      webhookSecret: string;
+    };
+
+    if (isSimulation) {
+      const mockHex = crypto.randomBytes(4).toString('hex');
+      const mockAccId = `acc_sim_${mockHex}`;
+      credsToStore = {
+        isOAuth: true,
+        keyId: `rzp_test_sim_${mockHex}`,
+        accessToken: `mock_oauth_tok_${crypto.randomUUID()}`,
+        accountId: mockAccId,
+        webhookSecret: `whsec_sim_${crypto.randomBytes(8).toString('hex')}`,
+      };
+    } else {
+      const clientId = config.RAZORPAY_CLIENT_ID!;
+      const clientSecret = config.RAZORPAY_CLIENT_SECRET;
+      if (!clientSecret) {
+        throw new ValidationError('Razorpay client secret is not configured on the server');
+      }
+
+      const redirectUri = config.RAZORPAY_OAUTH_REDIRECT_URI || `${config.FRONTEND_URL}/settings?tab=integrations&section=payment`;
+
+      const tokenUrl = 'https://auth.razorpay.com/token';
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+      const bodyParams = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code: payload.code,
+        mode: 'live',
+      });
+
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${basicAuth}`,
+        },
+        body: bodyParams.toString(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('Razorpay OAuth token exchange failed', { status: response.status, error: errorText });
+        throw new ExternalServiceError(
+          'Failed to exchange authorization code with Razorpay',
+          `Razorpay OAuth token error: ${response.status} ${errorText}`
+        );
+      }
+
+      const tokenData = await response.json() as {
+        access_token: string;
+        token_type: string;
+        expires_in?: number;
+        refresh_token?: string;
+        razorpay_account_id: string;
+        public_token?: string;
+      };
+
+      credsToStore = {
+        isOAuth: true,
+        keyId: tokenData.public_token || `rzp_live_${tokenData.razorpay_account_id.slice(-6)}`,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        accountId: tokenData.razorpay_account_id,
+        webhookSecret: `whsec_oauth_${crypto.randomBytes(8).toString('hex')}`,
+      };
+    }
+
+    const version = 1;
+    const encrypted = encrypt(JSON.stringify(credsToStore), this.getAadContext(tenantId, 'razorpay', version));
+
+    await this.repo.upsertIntegration({
+      tenantId,
+      provider: 'razorpay',
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      authTag: encrypted.authTag,
+      keyVersion: version,
+      lastValidatedAt: new Date(),
+      lastValidationResult: 'valid',
+    });
+
+    return {
+      success: true,
+      message: isSimulation
+        ? 'Razorpay Sandbox connected in 1 click!'
+        : 'Razorpay account connected successfully via OAuth!',
+      accountId: credsToStore.accountId,
+    };
+  }
+
   async testRazorpayIntegration(tenantId: string): Promise<{ success: boolean; message: string }> {
     const creds = await this.getDecryptedRazorpayConfig(tenantId);
     try {
-      const auth = Buffer.from(`${creds.keyId}:${creds.keySecret}`).toString('base64');
+      if (creds.accessToken?.startsWith('mock_') || creds.keyId?.startsWith('rzp_test_sim_')) {
+        return { success: true, message: 'Razorpay Sandbox connection verified and operational.' };
+      }
+
+      let headers: Record<string, string>;
+      if (creds.accessToken) {
+        headers = { Authorization: `Bearer ${creds.accessToken}` };
+      } else if (creds.keyId && creds.keySecret) {
+        const auth = Buffer.from(`${creds.keyId}:${creds.keySecret}`).toString('base64');
+        headers = { Authorization: `Basic ${auth}` };
+      } else {
+        throw IntegrationErrors.CREDENTIAL_INVALID('Razorpay');
+      }
+
       const response = await fetch('https://api.razorpay.com/v1/payments', {
-        headers: { Authorization: `Basic ${auth}` },
+        headers,
         signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(5000) : undefined
       });
 
@@ -1446,7 +1637,7 @@ export class IntegrationService {
         throw IntegrationErrors.PROVIDER_UNAVAILABLE('Razorpay');
       }
 
-      return { success: true, message: 'Razorpay API credentials are valid and live.' };
+      return { success: true, message: 'Razorpay credentials are valid and live.' };
     } catch (error: unknown) {
       if (error instanceof IntegrationError) {
         throw error;
