@@ -44,6 +44,8 @@ const schema = z.object({
   RAZORPAY_CLIENT_ID: z.string().optional(),
   RAZORPAY_CLIENT_SECRET: z.string().optional(),
   RAZORPAY_OAUTH_REDIRECT_URI: z.string().optional(),
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
 });
 
 function parseConfig(): z.infer<typeof schema> {
