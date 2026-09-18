@@ -79,8 +79,30 @@ export class PaymentRepository {
   async insertPaymentLink(link: typeof invoicePaymentLinks.$inferInsert): Promise<InvoicePaymentLink> {
     const id = link.id || crypto.randomUUID();
     const data = { ...link, id };
-    await this.db.insert(invoicePaymentLinks).values(data);
-    const [row] = await this.db.select().from(invoicePaymentLinks).where(eq(invoicePaymentLinks.id, id)).limit(1);
+    await this.db.insert(invoicePaymentLinks)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [invoicePaymentLinks.tenantId, invoicePaymentLinks.invoiceId, invoicePaymentLinks.provider],
+        set: {
+          providerPaymentLinkId: data.providerPaymentLinkId,
+          providerOrderId: data.providerOrderId,
+          paymentUrl: data.paymentUrl,
+          status: data.status || 'active',
+          amount: data.amount,
+          currency: data.currency,
+          metadata: data.metadata,
+          expiresAt: data.expiresAt,
+          updatedAt: new Date(),
+        }
+      });
+    const [row] = await this.db.select()
+      .from(invoicePaymentLinks)
+      .where(and(
+        eq(invoicePaymentLinks.tenantId, data.tenantId),
+        eq(invoicePaymentLinks.invoiceId, data.invoiceId),
+        eq(invoicePaymentLinks.provider, data.provider)
+      ))
+      .limit(1);
     return row!;
   }
 
