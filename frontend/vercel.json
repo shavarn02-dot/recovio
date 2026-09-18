@@ -1,0 +1,25 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/compare/highradius-alternative",
+      "destination": "/compare/highradius-vs-jaktra",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://jaktra-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/public/:path*",
+      "destination": "https://jaktra-backend.onrender.com/public/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

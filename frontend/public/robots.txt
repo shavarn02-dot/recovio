@@ -1,0 +1,24 @@
+# https://jaktra.site/robots.txt
+User-agent: *
+Allow: /
+
+# Private dashboard routes
+Disallow: /invoices
+Disallow: /agent
+Disallow: /analytics
+Disallow: /disputes
+Disallow: /payment-plans
+Disallow: /settings
+Disallow: /activity-log
+Disallow: /dlq
+Disallow: /invite
+Disallow: /i/
+Disallow: /api/
+Disallow: /admin/
+
+# Auth routes (defense-in-depth alongside meta noindex, nofollow)
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+
+Sitemap: https://jaktra.site/sitemap.xml

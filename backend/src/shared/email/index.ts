@@ -1,0 +1,32 @@
+export interface EmailMessage {
+  to: string;
+  from: { name: string; email: string };
+  replyTo?: string;
+  subject: string;
+  html: string;
+  text?: string;
+  tags?: Array<{ name: string; value: string }> | Record<string, string>;
+  headers?: Record<string, string>;
+  trackingSettings?: { openTracking?: boolean; clickTracking?: boolean };
+}
+
+export interface EmailSendResult {
+  success: boolean;
+  providerMessageId?: string;
+  error?: string;
+}
+
+export interface EmailProvider {
+  readonly name: string;
+  send(message: EmailMessage): Promise<EmailSendResult>;
+}
+
+export type ResolvedEmailConfig =
+  | { kind: 'smtp'; host: string; port: number; user: string; password: string; secure: boolean }
+  | { kind: 'sendgrid'; apiKey: string }
+  | { kind: 'resend'; apiKey: string };
+
+export * from './recipient-email-validator.js';
+export * from './mx-verifier.js';
+export * from './email-provider.factory.js';
+
