@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { settingsService } from '../../services/settings';
 import { 
   Loader2, CheckCircle2, AlertTriangle, Eye, EyeOff, Copy, Check, 
-  Zap, ChevronDown, ChevronUp, ShieldCheck, ExternalLink, RefreshCw
+  Zap, ChevronDown, ChevronUp, ShieldCheck, RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getErrorMessage } from '../../utils/error-utils';
